@@ -1,0 +1,1014 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<title>Whisperwing</title>
+<style>
+  @font-face {
+    font-family: 'FlappyFont';
+    src: url('/Pacifico-Regular.ttf') format('truetype');
+  }
+
+  html,body {
+    height:100%;
+    width:100%;
+    margin:0;
+    overflow:hidden;
+    /*background:#000000;*/
+    -webkit-user-select:none;
+    user-select:none;
+    -webkit-tap-highlight-color: transparent;
+    font-family: 'FlappyFont', system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  #gameCanvas {
+    display:block;
+    overflow: hidden;
+    margin:0 auto;
+    background:#000000;
+    touch-action: manipulation;
+  }
+
+  .overlay {
+    position:fixed;
+    left:0; right:0; top:10px;
+    text-align:center;
+    color:#fff;
+    text-shadow:2px 2px 0 rgba(0,0,0,0.4);
+    font-weight:700;
+    z-index:5;
+    pointer-events:none;
+  }
+
+  #score {
+    position:relative;
+    font-size:100px;
+    top:30px;
+    line-height:1;
+    pointer-events:none;
+  }
+
+  #highScoreTop {
+    position:fixed;
+    left:10px; top:2px;
+    font-family:'FlappyFont', system-ui;
+    font-size:15px;
+    color:yellow;
+    z-index:6;
+    pointer-events:none;
+    text-shadow:0 2px 0 rgba(50,50,100,100.9);
+  }
+
+  #tapHint { font-size:15px; top:10px; margin-top:30px; opacity:0.95; pointer-events:none; }
+
+  #introText {
+    position:fixed;
+    top:45%; left:50%;
+    transform:translate(-50%,-50%);
+    text-align:center;
+    color:yellow;
+    text-shadow: 0 5px 8px rgba(0,0,0,0.4);
+    font-family:'FlappyFont', system-ui;
+    font-size:30px;
+    z-index:6;
+    animation:fadeIn 1s ease-in-out;
+    pointer-events:none;
+  }
+
+  #gameOverStats {
+    position:fixed;
+    top:45%; left:50%;
+    transform:translate(-50%,-50%);
+    text-align:center;
+    color:rgba(250,140,0,40);
+    font-family:'FlappyFont', system-ui;
+    font-size:20px;
+    display:none;
+    text-shadow:0 2px 2px rgba(0,0,0,0.4);
+    z-index:8;
+    background: rgba(255,255,255,0.02);
+    padding:12px 18px;
+    border-radius:10px;
+  }
+
+  #muteBtn {
+    position:fixed;
+    top:10px; right:10px;
+    width:30px; height:30px;
+    z-index:10;
+    cursor:pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  @keyframes fadeIn {
+    from { opacity:0; transform:translate(-50%,-60%); }
+    to { opacity:1; transform:translate(-50%,-50%); }
+  }
+
+  /* small mobile adjustments */
+  @media (max-width:420px){
+    #score{ font-size:72px; }
+    #introText{ font-size:20px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="overlay">
+  <div id="score">0</div>
+  <div id="tapHint">Tap to play</div>
+</div>
+
+<div id="highScoreTop">Your Best Score : 0</div>
+
+<div id="introText">
+  <div>Tap to Play</div>
+  <div style="font-size:12px;margin-top:2px;">Keep tapping to reach the top score!</div>
+</div>
+
+<img id="muteBtn" src="iconUnmute.png" alt="mute toggle" />
+<canvas id="gameCanvas"</canvas>
+
+<div id="gameOverStats"></div>
+
+<!-- Audio elements (preload will be set) -->
+<audio id="soundFlap" preload="auto"></audio>
+<audio id="soundHit" preload="auto"></audio>
+<audio id="soundPoint" preload="auto"></audio>
+
+<script>
+/* =========  CONFIG & ASSETS (kept from your original) ========= */
+const CANVAS = document.getElementById('gameCanvas');
+const CTX = CANVAS.getContext('2d');
+
+
+
+const SCORE_LABEL = document.getElementById('score');
+const TAP_HINT = document.getElementById('tapHint');
+const MUTE_BTN = document.getElementById('muteBtn');
+const INTRO_TEXT = document.getElementById('introText');
+const GAMEOVER_STATS = document.getElementById('gameOverStats');
+const HIGH_SCORE_TOP = document.getElementById('highScoreTop');
+
+const soundFlap = document.getElementById('soundFlap');
+const soundHit  = document.getElementById('soundHit');
+const soundPoint= document.getElementById('soundPoint');
+
+
+
+const ASSETS = {
+  birdUp: '/1762317111513.png',
+  birdMid: '/1762316962127.png',
+  birdDown: '/1762316761360.png',
+  //pipeTop: 'cano_topo.png',
+  pipeBottom: '/1762104717214.png',
+  //pipeSmallTop: 'cano_topo_maior.png',    // you had small/large variants
+  pipeSmallBottom: 'cano_baixo_maior.png',
+  ground: '/1762033507633.png',
+  bg: '/1762032691994.png',
+  gameOverImg: '/1762053865486.png',
+  iconMute: '/1762324425534.png',
+  iconUnmute: '/1762324405580.png',
+  flapSound: 'som_asa.wav',
+  hitSound: 'som_batida.wav',
+  pointSound: 'som_pontos.wav'
+};
+
+const CONFIG = {
+  canvasWidth: window.innerWidth,
+  canvasHeight: window.innerHeight,
+  gravity: 0.2,
+  jumpStrength: -5,
+  pipeSpeed: 1.6,
+  spawnInterval: 2400,       // ms between spawns
+  pipeGap: 150,
+  pipeGapSmall: 130,
+  pipeWidth: 80,
+  pipeWidthSmall: 75,
+  groundHeight: 350, // will be recal''culated in init to ensure 25% of canvas height
+  birdX: 80,
+  maxFallSpeed: 50,
+  birdTopLimit: 50,
+};
+
+/* =========  GAME STATE (keeps original data + new flags) ========= */
+let state = {
+  running:false,
+  started:false,
+  gameOver:false,
+  crashed:false,        // when bird has collided (pipe or ground)
+  crashedByPipe:false,  // different behavior when pipe collision (instant out animation)
+  score:0,
+  lastSpawn:0,
+  pipes:[],
+  bird:null,
+  images:{},
+  elapsed:0,
+  muted:false,
+  bestScore: localStorage.getItem('birdyBestScore') ? parseInt(localStorage.getItem('birdyBestScore')) : 0,
+  groundOffset:0,
+  // camera & shake (NEW)
+  cameraX: 0,
+  cameraY: 0,
+  cameraTargetX: 0,
+  cameraTargetY: 0,
+  shaking: false,
+  shakeTimer: 0,
+  shakeDuration: 15,    // ms
+  shakeMagnitude: 5     // px (light shake)
+};
+
+/* =========  ASSET LOADING ========= */
+function loadImage(src){
+  return new Promise(r=>{
+    const i=new Image();
+    i.onload=()=>r(i);
+    i.onerror=()=>r(null);
+    i.src=src;
+  });
+}
+
+async function preload(){
+  const results = await Promise.all([
+    loadImage(ASSETS.birdUp),loadImage(ASSETS.birdMid),loadImage(ASSETS.birdDown),
+    loadImage(ASSETS.pipeTop),loadImage(ASSETS.pipeBottom),
+    loadImage(ASSETS.pipeSmallTop),loadImage(ASSETS.pipeSmallBottom),
+    loadImage(ASSETS.ground),loadImage(ASSETS.bg),
+    loadImage(ASSETS.gameOverImg),
+    loadImage(ASSETS.iconMute),loadImage(ASSETS.iconUnmute)
+  ]);
+  const [bu,bm,bd,pt,pb,pst,psb,g,bg,go,im,iu]=results;
+  Object.assign(state.images,{
+    birdUp:bu,birdMid:bm,birdDown:bd,
+    pipeTop:pt,pipeBottom:pb,
+    pipeSmallTop:pst,pipeSmallBottom:psb,
+    ground:g,bg:bg,gameOver:go,
+    iconMute:im,iconUnmute:iu
+  });
+
+  soundFlap.src = ASSETS.flapSound;
+  soundHit.src = ASSETS.hitSound;
+  soundPoint.src = ASSETS.pointSound;
+}
+
+/* =========  INPUT / CONTROLS ========= */
+function toggleMute(){
+  state.muted = !state.muted;
+  const src = state.muted ? ASSETS.iconMute : ASSETS.iconUnmute;
+  MUTE_BTN.src = src;
+  [soundFlap,soundHit,soundPoint].forEach(s=>s.muted = state.muted);
+}
+MUTE_BTN.addEventListener('click', toggleMute);
+
+function createBird(){
+  return {
+    x: CONFIG.birdX,
+    y: CANVAS.height - CONFIG.groundHeight - 180, // 🕊️ start lower
+    w: 30, h: 25,
+    vy: 0,
+    frame: 1, frameTimer: 0,
+    rotation: 0,
+    sliding: false,   // when sliding on ground after crash
+    slideTimer: 0
+  };
+}
+
+function spawnPipePair() {
+  const useSmall = Math.random() < 0.5;
+  const pipeW = useSmall ? CONFIG.pipeWidthSmall : CONFIG.pipeWidth;
+  const pipeGap = useSmall ? CONFIG.pipeGapSmall : CONFIG.pipeGap;
+  const minHeight = 30; // top pipe min height
+  const topMaxOffset = 0; // pixels from top to keep top pipe inside
+  
+  // ground position (bottom pipe should reach here)
+  const groundY = CANVAS.height - CONFIG.groundHeight;
+  
+  // Max top pipe height so bottom pipe still fits
+  const maxTopH = groundY - pipeGap - minHeight;
+  const topH = Math.floor(Math.random() * (Math.max(0, maxTopH - minHeight) + 1)) + minHeight + topMaxOffset;
+  
+  // Top pipe
+  const top = {
+    x: CANVAS.width,
+    y: 0,
+    w: pipeW,
+    h: topH,
+    small: useSmall,
+    passed: false,
+    top: true
+  };
+  
+  // Bottom pipe: starts after top + gap, goes into ground
+  const botY = topH + pipeGap;
+  const groundOffset = 150; // optional: push pipe slightly into ground
+  const botH = (groundY - botY) + groundOffset;
+  
+  const bot = {
+    x: CANVAS.width,
+    y: botY,
+    w: pipeW,
+    h: botH,
+    small: useSmall,
+    passed: false,
+    top: false
+  };
+  
+  state.pipes.push(top, bot);
+}
+
+function doJump(){
+  if(!state.started){
+    state.started = true;
+    TAP_HINT.style.display = 'none';
+    INTRO_TEXT.style.display = 'none';
+  }
+  if(state.gameOver || state.crashed) return;
+
+  const topLimit = 50 + state.bird.h / 2;
+  if(state.bird.y > topLimit){ 
+    state.bird.vy = CONFIG.jumpStrength;
+
+    // Start a new flap phase
+    state.bird.flapActive = true;
+    state.bird.flapPhaseTime = 0;
+    state.bird.frameTimer = 0;
+    state.bird.frame = 0; // start with wings up
+
+    if(!state.muted) try{ soundFlap.currentTime = 0; soundFlap.play(); }catch(e){}
+  } else {
+    state.bird.vy = 0;
+  }
+}
+function setupInput(){
+  let lastTap=0;
+  window.addEventListener('pointerdown',e=>{
+    if(state.gameOver){
+      const now=Date.now();
+      // double-tap to restart
+      if(now-lastTap<400){ restart(); }
+      lastTap=now;
+      return;
+    }
+    if(!state.running) startGame();
+    doJump();
+  },{passive:true});
+
+  window.addEventListener('keydown',e=>{
+    if(e.code==='Space'||e.code==='ArrowUp'){
+      if(state.gameOver){
+        // restart by pressing
+        restart();
+        return;
+      }
+      if(!state.running) startGame();
+      doJump();
+    }
+  });
+}
+
+/* =========  COLLISION UTILS ========= */
+function rectsOverlap(a,b){
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+/* =========  MAIN LOOP ========= */
+let lastTime=0;
+function loop(ts){
+  if(!state.running) return;
+  if(!lastTime) lastTime = ts;
+  const dt = ts - lastTime; lastTime = ts;
+  update(dt); render();
+  if(state.running) requestAnimationFrame(loop);
+}
+
+/* =========  UPDATE (physics + spawns + camera shake logic) ========= */
+function update(dt){
+  state.elapsed += dt;
+  const b = state.bird;
+
+  // ground movement
+  state.groundOffset -= CONFIG.pipeSpeed;
+  if (state.groundOffset <= -CANVAS.width) state.groundOffset = 0;
+
+  // if not started yet — idle flap animation
+if (!state.started && !state.crashed) {
+  // 🕊️ Bird animation logic
+b.frameTimer += dt;
+
+// If just tapped or moving upward
+if (b.vy < -1) {
+  // alternate between up (0) and mid (1)
+  if (b.frameTimer > 100) {
+    b.frame = (b.frame === 0 ? 1 : 0);
+    b.frameTimer = 0;
+  }
+}
+// If bird is almost still (between rising and falling)
+else if (b.vy >= -1 && b.vy <= 2) {
+  b.frame = 1; // mid frame
+}
+// If bird is falling fast
+else if (b.vy > 2) {
+  b.frame = 2; // down frame
+}
+  
+  // keep camera at origin during idle
+  state.cameraTargetX = 0;
+  state.cameraTargetY = 0;
+  state.cameraX += (state.cameraTargetX - state.cameraX) * 0.12;
+  state.cameraY += (state.cameraTargetY - state.cameraY) * 0.12;
+  return;
+}
+
+// 🟢 After game starts (flying)
+b.frameTimer += dt;
+
+// if bird is falling fast — show birdDown (2)
+if (b.vy > 2) {
+  b.frame = 2;
+  b.flapActive = false;
+}
+// if bird is in flap mode (from tap) — alternate between up(0) and mid(1)
+else if (b.flapActive) {
+  if (b.frameTimer > 100) {
+    b.frame = (b.frame === 0 ? 1 : 0);
+    b.frameTimer = 0;
+  }
+  // stop flapping when starting to fall again
+  if (b.vy > 0) b.flapActive = false;
+}
+// otherwise show mid (1)
+else {
+  b.frame = 1;
+}
+
+  // if crashed: special animations & shake
+  if(state.crashed){
+    startCameraShake();
+    // update shake timer if active (we want shake to decay even if crashed)
+    if(state.shaking){
+      state.shakeTimer += dt;
+      if(state.shakeTimer >= state.shakeDuration){
+        state.shaking = true;
+        state.shakeTimer = state.shakeDuration;
+      }
+      
+    }
+
+// If crashed by pipe => more violent spin + leftward movement then quickly out (real feel)
+if (state.crashedByPipe) {
+  const b = state.bird;
+  const groundY = CANVAS.height - CONFIG.groundHeight;
+  
+  // Bird physics: stronger gravity + fast spin
+  b.vy += CONFIG.gravity * 1.1;
+  if (b.vy > CONFIG.maxFallSpeed * 2) b.vy = CONFIG.maxFallSpeed * 2;
+  b.y += b.vy;
+  
+  // Rotate bird visually
+  b.rotation += 14;
+  
+  // Move pipes to the right (wipe effect)
+  for (let i = state.pipes.length - 1; i >= 0; i--) {
+    const p = state.pipes[i];
+    p.x += CONFIG.pipeSpeed * 3;
+    if (p.x > CANVAS.width + 200) state.pipes.splice(i, 1);
+  }
+  
+  // Move ground right at same speed
+  state.groundOffset += CONFIG.pipeSpeed * 4;
+  
+  // Clamp bird on ground: trigger Game Over only after reaching ground
+  const birdBottom = b.y + (b.h || 20) / 2; // fallback if b.h undefined
+  const offset = 120; // small buffer to let bird fall a bit lower
+  if (birdBottom >= groundY + offset) {
+    b.y = groundY - (b.h || 20) / 2 + offset;
+    b.vy = 0; // stop vertical velocity
+    b.sliding = false;
+    b.slideTimer = 0;
+    
+    // Trigger Game Over now
+    showGameOverScreen();
+  }
+  
+  // Stop any camera movement
+  return;
+}
+    // crashed by ground (slide + wipe effect)
+if (b.sliding || state.crashedByGround) {
+  const groundY = CANVAS.height - CONFIG.groundHeight;
+  
+  // Bird physics
+  b.vy += CONFIG.gravity * 0.9;
+  if (b.vy > CONFIG.maxFallSpeed) b.vy = CONFIG.maxFallSpeed;
+  b.y += b.vy;
+  b.rotation += 6; // slow roll while sliding
+  
+  // Stop bird from going above top limit
+  if (b.y - b.h / 2 < CONFIG.birdTopLimit) {
+    b.y = CONFIG.birdTopLimit + b.h / 2;
+    b.vy = 0;
+  }
+  
+  // Keep bird on top of ground
+  if (b.y + b.h / 2 >= groundY - 2) {
+    b.y = groundY - b.h / 2;
+    b.vy = -50;
+    
+    b.x += 2;
+    // Start slide timer once bird touches the ground
+    if (!b.startedSlide) {
+      b.startedSlide = true;
+      b.slideTimer = 0;
+    }
+    
+    // Rotate for 1 second before game over
+    b.slideTimer += dt;
+    if (b.slideTimer > 3000) { // 1000ms = 1 second
+      b.sliding = false;
+      b.startedSlide = false;
+      showGameOverScreen();
+    }
+  }
+  
+  // Move pipes and ground to the right (wipe effect)
+  for (let i = state.pipes.length - 1; i >= 0; i--) {
+    const p = state.pipes[i];
+    p.x += CONFIG.pipeSpeed * 3;
+    if (p.x > CANVAS.width + 100) state.pipes.splice(i, 1);
+  }
+  state.groundOffset += CONFIG.pipeSpeed * 3;
+  
+  // No camera movement
+  state.cameraTargetX = 0;
+  state.cameraTargetY = 0;
+  state.cameraX += (state.cameraTargetX - state.cameraX) * 0.12;
+  state.cameraY += (state.cameraTargetY - state.cameraY) * 0.12;
+  
+  return;
+}
+
+    // default crashed falling to ground first
+    b.vy += CONFIG.gravity * 0.9;
+    if(b.vy > CONFIG.maxFallSpeed) b.vy = CONFIG.maxFallSpeed;
+    b.y += b.vy;
+    b.rotation += 10;
+
+    // camera follows vertically slightly while falling
+    state.cameraTargetY = b.y - CANVAS.height * 0.45;
+    state.cameraX += (state.cameraTargetX - state.cameraX) * 0.12;
+    state.cameraY += (state.cameraTargetY - state.cameraY) * 0.12;
+
+    // when hits ground start sliding — clamp and stop penetration
+    const groundY = Math.floor(CANVAS.height - CONFIG.groundHeight);
+    if(b.y + b.h/2 >= groundY){
+      b.y = groundY - b.h/2;
+      b.vy = 0;
+      b.sliding = true;
+      b.slideTimer = 0;
+      //showGameOverScreen();
+    }
+    return;
+  }
+
+  // Normal gameplay (not crashed)
+  // spawn pipes by elapsed ms
+  if(state.elapsed - state.lastSpawn > CONFIG.spawnInterval){
+    spawnPipePair();
+    state.lastSpawn = state.elapsed;
+  }
+
+  // NORMAL gameplay pipe logic
+if (!state.crashed) {
+  // spawn pipes by elapsed ms
+  if (state.elapsed - state.lastSpawn > CONFIG.spawnInterval) {
+    spawnPipePair();
+    state.lastSpawn = state.elapsed;
+  }
+  
+  // move pipes left
+  for (let i = state.pipes.length - 1; i >= 0; i--) {
+    const p = state.pipes[i];
+    p.x -= CONFIG.pipeSpeed;
+    // remove offscreen left
+    if (p.x + p.w < -60) state.pipes.splice(i, 1);
+  }
+  
+  // pipe collisions & scoring here...
+}
+
+// POST-CRASH wipe pipes to right
+if (state.crashed) {
+  for (let i = state.pipes.length - 1; i >= 0; i--) {
+    const p = state.pipes[i];
+    p.x += CONFIG.pipeSpeed * 2; // move to right faster
+    if (p.x > CANVAS.width) state.pipes.splice(i, 1);
+  }
+}
+
+  // bird physics
+  b.vy += CONFIG.gravity;
+  if(b.vy > CONFIG.maxFallSpeed) b.vy = CONFIG.maxFallSpeed;
+  b.y += b.vy;
+
+  // rotation smoothing (tilt with vy)
+  const targetRot = Math.max(-25, Math.min(90, b.vy * 6));
+  b.rotation += (targetRot - b.rotation) * 0.1;
+
+  // wing frame selection
+  if(b.vy < -2) b.frame = 0;
+  else if(b.vy > 2) b.frame = 2;
+  else b.frame = 1;
+
+  // ground collision — use 75% screen height as ground top (scrolling ground)
+  // ========== GROUND HIT & SLIDE FIX ==========
+// ground collision — immediate game over
+const groundY = CANVAS.height - CONFIG.groundHeight + 120;
+if(b.y + b.h/2 >= groundY){
+  b.y = groundY - b.h/2;  // clamp to ground top
+  b.vy = 0;                // stop falling
+  state.crashed = true;    // mark crashed
+  state.crashedByPipe = false;
+  b.sliding = true;       // no sliding
+  b.slideTimer = 1;
+  if(!state.muted) try{ soundHit.currentTime=0; soundHit.play(); }catch(e){}
+  showGameOverScreen();    // trigger game over
+  return;                  // stop further updates this frame
+}
+
+// ======= SLIDING LOGIC =======
+if(b.sliding){
+  b.slideTimer += dt;
+
+  // slide left slowly
+  b.x -= 2.6;
+  b.rotation += 6; // gentle roll
+
+  // clamp on ground
+  b.y = groundY - b.h/2;
+  b.vy = 0;
+
+  // camera stays fixed on screen (no horizontal move)
+  
+  state.cameraTargetX = 0;
+  state.cameraTargetY = 0;
+  state.cameraX += (state.cameraTargetX - state.cameraX) * 0.12;
+  state.cameraY += (state.cameraTargetY - state.cameraY) * 0.12;
+
+  // after short slide, show game over
+  if(b.slideTimer > 900){
+    showGameOverScreen();
+  }
+
+  return; // exit update to prevent other movements
+}
+
+  // pipe collisions & scoring
+  for(let i=0;i<state.pipes.length;i++){
+    const p = state.pipes[i];
+    const pipeBox = {x:p.x, y:p.y, w:p.w, h:p.h};
+    const birdBox = {x:b.x - b.w/2, y:b.y - b.h/2, w:b.w, h:b.h};
+    if(rectsOverlap(birdBox, pipeBox)){
+      // collision: decide if pipe or ground style
+      // If bird hits side of pipe (or anywhere in pipe), we treat it as pipe collision.
+      state.crashed = true;
+      state.crashedByPipe = true;
+      // play hit + start shaking + camera follow
+      startCameraShake();
+      if(!state.muted) try{ soundHit.currentTime=0; soundHit.play(); }catch(e){}
+      b.vy = -4;
+      b.rotation = -30;
+      // init camera target
+      state.cameraTargetX = b.x - CANVAS.width * 0.35;
+      state.cameraTargetY = b.y - CANVAS.height * 0.45;
+      return;
+    }
+
+    // scoring when passing top pipe (only for top pipes to avoid double counting)
+    if(!p.passed && p.top && (p.x + p.w) < (b.x - b.w/2)){
+      p.passed = true;
+      state.score++;
+      SCORE_LABEL.textContent = state.score;
+      if(!state.muted) try{ soundPoint.currentTime=0; soundPoint.play(); }catch(e){}
+    }
+  }
+
+  // keep camera at origin during normal play (small smoothing to return)
+  state.cameraTargetX = 0;
+  state.cameraTargetY = 0;
+  state.cameraX += (state.cameraTargetX - state.cameraX) * 0.08;
+  state.cameraY += (state.cameraTargetY - state.cameraY) * 0.08;
+}
+
+/* =========  Camera shake helper (NEW) ========= */
+function startCameraShake(){
+  state.shaking = true;
+  state.shakeTimer = 0;
+}
+
+/* =========  GAMEOVER & RESTART ========= */
+function showGameOverScreen(){
+  if(state.gameOver) return;
+  state.gameOver = true;
+  state.running = false;
+  // update best
+  if(state.score > state.bestScore){
+    state.bestScore = state.score;
+    localStorage.setItem('birdyBestScore', state.bestScore);
+  }
+  HIGH_SCORE_TOP.textContent = 'Your Best Score : '+state.bestScore;
+  GAMEOVER_STATS.style.display = 'block';
+  GAMEOVER_STATS.innerHTML = `
+    <div style="font-size:55px;color:white;margin-bottom:8px;"></div>
+    <div>Your score : ${state.score}</div>
+    <div>Your best : ${state.bestScore}</div>
+<div style="
+  position: absolute;
+  bottom: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 20px;
+  color: yellow;
+  text-shadow:2 2px 5px rgba(0,0,0,0.4);
+  white-space: nowrap;
+  text-align: center;
+">
+  Double tap to play again</div>
+  `;
+}
+
+function startGame(){
+  if(state.running) return;
+  state.running = true;
+  state.gameOver = false;
+  state.started = false;
+  state.crashed = false;
+  state.crashedByPipe = false;
+  state.score = 0;
+  SCORE_LABEL.textContent = '0';
+  TAP_HINT.style.display = 'block';
+  INTRO_TEXT.style.display = 'block';
+  GAMEOVER_STATS.style.display = 'none';
+  state.pipes = [];
+  state.bird = createBird();
+  state.lastSpawn = 0;
+  state.elapsed = 0;
+  lastTime = 0;
+  // reset camera & shake
+  state.cameraX = 0; state.cameraY = 0; state.cameraTargetX = 0; state.cameraTargetY = 0;
+  state.shaking = false; state.shakeTimer = 0;
+  HIGH_SCORE_TOP.textContent = 'Your Best Score : ' + state.bestScore;
+  requestAnimationFrame(loop);
+}
+
+function restart() {
+  // Reset all states
+  state.running = false;
+  state.started = false;
+  state.gameOver = false;
+  state.crashed = false;
+  state.crashedByPipe = false;
+  state.score = 0;
+  state.elapsed = 0;
+  state.lastSpawn = 0;
+  state.pipes = [];
+  state.groundOffset = 0;
+  state.cameraX = 0;
+  state.cameraY = 0;
+  state.cameraTargetX = 0;
+  state.cameraTargetY = 0;
+  state.shaking = false;
+  state.shakeTimer = 0;
+  state.bird = createBird();
+  
+  // Reset UI
+  SCORE_LABEL.textContent = '0';
+  TAP_HINT.style.display = 'none';
+  INTRO_TEXT.style.display = 'none';
+  GAMEOVER_STATS.style.display = 'none';
+  HIGH_SCORE_TOP.textContent = 'Your Best Score : ' + state.bestScore;
+  
+  // Fully start the game again
+  state.running = true;
+  state.started = true;
+  lastTime = 0;
+  
+  requestAnimationFrame(loop);
+}
+
+/* =========  RENDER ========= */
+function render(){
+  CTX.clearRect(0,0,CANVAS.width,CANVAS.height);
+
+  // compute shake offsets (if shaking)
+  let shakeX = 0, shakeY = 0;
+  if(state.shaking){
+    const t = state.shakeTimer;
+    const d = state.shakeDuration;
+    const progress = Math.min(1, t / d);
+    const falloff = 1 - progress; // decay
+    const mag = state.shakeMagnitude * falloff;
+    // random small jitter
+    shakeX = (Math.random() * 2 - 1) * mag;
+    shakeY = (Math.random() * 2 - 1) * mag;
+    // slight downward pan as it progresses (subtle)
+    shakeY += 10 * (1 - Math.pow(falloff, 0.8));
+  }
+
+  // apply camera transform for world (cameraX/Y and shake)
+  CTX.save();
+  const camX = state.cameraX + shakeX;
+  const camY = state.cameraY + shakeY;
+  CTX.translate(-camX, -camY);
+
+// background stays fixed (no scrolling)
+if (state.images.bg) {
+  const img = state.images.bg;
+  const canvasRatio = CANVAS.width / CANVAS.height;
+  const imgRatio = img.width / img.height;
+  let drawWidth, drawHeight;
+  
+  if (imgRatio > canvasRatio) {
+    drawWidth = CANVAS.width;
+    drawHeight = CANVAS.width / imgRatio;
+  } else {
+    drawHeight = CANVAS.height;
+    drawWidth = CANVAS.height * imgRatio;
+  }
+  
+  const drawX = (CANVAS.width - drawWidth) / 2;
+  
+  const shiftFactor = -1.2; // change this between 0 (top) to 1 (bottom)
+  const drawY = (CANVAS.height - drawHeight) * shiftFactor;
+  
+  CTX.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+} else {
+  /*CTX.fillStyle = '#000';
+  CTX.fillRect(0, 0, CANVAS.width, CANVAS.height);*/
+}
+
+// draw pipes (world positions)
+CTX.imageSmoothingEnabled = false;
+
+for (const p of state.pipes) {
+  const capHeight = 30; // rim height in source image
+  const img = p.top ? state.images.pipeBottom : state.images.pipeBottom; // use same texture for both
+  
+  if (!img || !img.complete) continue;
+  
+  const bodySrcY = capHeight;
+  const bodySrcH = Math.max(1, img.height - capHeight);
+  
+  // ----------------------------
+  // 🔵 NORMAL BOTTOM PIPE
+  // ----------------------------
+  if (!p.top) {
+    if (p.h <= capHeight) {
+      // short pipe = only draw cap
+      CTX.drawImage(
+        img,
+        0, 0, img.width, capHeight,
+        p.x, p.y, p.w, p.h
+      );
+      continue;
+    }
+    
+    // draw cap
+    CTX.drawImage(
+      img,
+      0, 0, img.width, capHeight,
+      p.x, p.y, p.w, capHeight
+    );
+    
+    // draw body below cap
+    CTX.drawImage(
+      img,
+      0, bodySrcY, img.width, bodySrcH,
+      p.x, p.y + capHeight, p.w, p.h - capHeight
+    );
+  }
+  
+  // ----------------------------
+  // 🟢 INVERTED TOP PIPE (FLIPPED)
+  // ----------------------------
+  else {
+    CTX.save();
+    // Flip the canvas vertically around the bottom of the pipe
+    CTX.translate(p.x, p.y);
+    CTX.scale(1, -1);
+    CTX.translate(0, -p.h);
+    
+    // Now just draw like the bottom pipe, but it's flipped
+    if (p.h <= capHeight) {
+      CTX.drawImage(
+        img,
+        0, 0, img.width, capHeight,
+        0, 0, p.w, p.h
+      );
+    } else {
+      // cap first
+      CTX.drawImage(
+        img,
+        0, 0, img.width, capHeight,
+        0, 0, p.w, capHeight
+      );
+      // body below cap
+      CTX.drawImage(
+        img,
+        0, bodySrcY, img.width, bodySrcH,
+        0, capHeight, p.w, p.h - capHeight
+      );
+    }
+    
+    CTX.restore();
+  }
+}
+  // draw ground (two copies for scrolling)
+  //const buffer = 5;
+  if (state.images.ground) {
+  // recalc ground height to match 25% bottom (in case canvas size differs)
+  const desiredGroundHeight = Math.floor(CANVAS.height * 0.30);
+  CONFIG.groundHeight = desiredGroundHeight;
+  
+  // 👇 move ground upward
+  const groundY = CANVAS.height - CONFIG.groundHeight + 25;
+  
+  const groundX = state.groundOffset % CANVAS.width;
+  CTX.drawImage(state.images.ground, groundX, groundY, CANVAS.width, CONFIG.groundHeight);
+  CTX.drawImage(state.images.ground, groundX + CANVAS.width, groundY, CANVAS.width, CONFIG.groundHeight);
+  CTX.drawImage(state.images.ground, groundX - CANVAS.width, groundY, CANVAS.width, CONFIG.groundHeight);
+} else {
+  CTX.fillStyle = '#b5651d';
+  CTX.fillRect(0, CANVAS.height - CONFIG.groundHeight - 100, CANVAS.width, CONFIG.groundHeight);
+}
+  // draw bird with rotation (world coords)
+  const b = state.bird;
+  let img = state.images.birdMid;
+  if(b.frame === 0 && state.images.birdUp) img = state.images.birdUp;
+  if(b.frame === 2 && state.images.birdDown) img = state.images.birdDown;
+
+  CTX.save();
+  CTX.translate(b.x, b.y);
+  CTX.rotate((b.rotation * Math.PI) / 180);
+  if(img) CTX.drawImage(img, -b.w/2, -b.h/2, b.w, b.h);
+  else {
+    CTX.fillStyle='yellow';
+    CTX.fillRect(-b.w/2, -b.h/2, b.w, b.h);
+  }
+  CTX.restore();
+
+  CTX.restore(); // restore after world draw (undo camera transform)
+
+  // draw game over image if game is over and we have image (UI on screen, not affected by camera)
+  if(state.gameOver && state.images.gameOver){
+    const sizeW = 200, sizeH = 100;
+    CTX.drawImage(state.images.gameOver,
+      (CANVAS.width-sizeW)/2,
+      (CANVAS.height-sizeH)/2 - 115,
+      sizeW, sizeH);
+  }
+
+  // update score overlay text (UI)
+  SCORE_LABEL.textContent = state.score;
+}
+
+/* =========  RESIZE SUPPORT ========= */
+function resizeCanvas(){
+  const deviceW = Math.min(window.innerWidth, 1000);
+  const scale = deviceW / CONFIG.canvasWidth;
+  CANVAS.style.width = (CONFIG.canvasWidth * scale) + 'px';
+  CANVAS.style.height = (CONFIG.canvasHeight * scale) + 'px';
+}
+
+/* =========  INIT ========= */
+async function init(){
+  CANVAS.width = CONFIG.canvasWidth;
+  CANVAS.height = CONFIG.canvasHeight;
+  // set groundHeight to bottom 25% so ground top is 75% from top
+  CONFIG.groundHeight = Math.floor(CANVAS.height * 0.25);
+
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  await preload();
+  setupInput();
+
+  state.bird = createBird();
+  render();
+
+  TAP_HINT.style.display = 'block';
+  SCORE_LABEL.textContent = '0';
+  MUTE_BTN.src = ASSETS.iconUnmute;
+  INTRO_TEXT.style.display = 'block';
+  HIGH_SCORE_TOP.textContent = 'Your Best Score : ' + state.bestScore;
+}
+
+
+init();
+
+
+
+</script>
+</body>
+</html>d
